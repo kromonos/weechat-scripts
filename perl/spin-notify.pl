@@ -23,20 +23,24 @@ use CGI;
 my %SCRIPT = (
 	name => 'spin-notify',
 	author => 'stfn <stfnmd@gmail.com>',
-	version => '0.1',
+	version => '0.1.1',
 	license => 'GPL3',
 	desc => 'Notifications for spin plugin',
 	opt => 'plugins.var.perl',
 );
 my %OPTIONS_DEFAULT = (
 	'enabled' => ['on', "Turn script on or off"],
-	'service' => ['pushover', 'Notification service to use (supported services: pushover, nma)'],
+	'service' => ['nma', 'Notification service to use (supported services: pushover, nma)'],
 	'pushover_token' => ['', 'pushover API token/key'],
 	'pushover_user' => ['', "pushover user key"],
 	'nma_apikey' => ['', "nma API key"],
-	'priority' => ['', "priority (empty for default)"],
-	'only_if_away' => ['off', 'Notify only if away status is active'],
+	'priority' => ['0', "priority (empty for default)"],
+	'vip_priority' => ['2', "priority for VIP users"],
+	'only_if_away' => ['on', 'Notify only if away status is active'],
 );
+
+my @VIP = ();
+
 my %OPTIONS = ();
 my $TIMEOUT = 20 * 1000;
 my $DEBUG = 0;
@@ -89,13 +93,13 @@ sub spin_signal
 	my $user = $signal_data;
 
 	if ($signal eq "spin_new_mail") {
-		notify("$user mailed you.");
+		notify("$user mailed you.", "$user");
 	} elsif ($signal eq "spin_new_gift") {
-		notify("$user sent you a gift.");
+		notify("$user sent you a gift.", "$user");
 	} elsif ($signal eq "spin_new_gb") {
-		notify("$user left you a new GB entry.");
+		notify("$user left you a new GB entry.", "$user");
 	} elsif ($signal eq "spin_new_comment") {
-		notify("$user left you a new comment.");
+		notify("$user left you a new comment.", "$user");
 	}
 }
 
@@ -105,20 +109,26 @@ sub spin_hsignal
 	my %hash = %{$hashtable};
 
 	if ($signal eq "spin_private_msg" && $hash{type} ne "0" && $hash{echo} eq "0") {
-		notify("$hash{user}: $hash{msg}");
+		notify("$hash{user}: $hash{msg}", "$hash{user}");
 	} elsif ($signal eq "spin_channel_msg" && $hash{type} ne "0" && $hash{highlight} eq "1") {
-		notify("[$hash{channel}] $hash{user}: $hash{msg}");
+		notify("[$hash{channel}] $hash{user}: $hash{msg}", "$hash{user}");
 	}
 }
 
 #
 # Notify wrapper (decides which service to use)
 #
-sub notify($)
+sub notify($$)
 {
 	my $msg = $_[0];
+	my $vip = $_[1];
 	my $message = "[spin] $msg";
 	my $away = (weechat::info_get("spin_is_away", "") eq "1") ? 1 : 0;
+	
+	my $priority = $OPTIONS{priority};
+	if (grep(/^\Q$vip\E$/i, @VIP)) {
+		$priority = $OPTIONS{vip_priority};
+	}
 
 	# Script disabled for any reason?
 	if ($OPTIONS{enabled} ne "on" || ($OPTIONS{only_if_away} eq "on" && $away == 0)) {
@@ -127,9 +137,9 @@ sub notify($)
 
 	# Notify service
 	if ($OPTIONS{service} eq "pushover") {
-		notify_pushover($OPTIONS{pushover_token}, $OPTIONS{pushover_user}, $message, "weechat", $OPTIONS{priority}, "");
+		notify_pushover($OPTIONS{pushover_token}, $OPTIONS{pushover_user}, $message, "weechat", $priority, "");
 	} elsif ($OPTIONS{service} eq "nma") {
-		notify_nma($OPTIONS{nma_apikey}, "weechat", "notification", $message, $OPTIONS{priority});
+		notify_nma($OPTIONS{nma_apikey}, "weechat", "notification", $message, $priority);
 	}
 }
 
